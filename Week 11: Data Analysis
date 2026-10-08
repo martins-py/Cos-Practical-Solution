@@ -1,0 +1,193 @@
+"""
+Iris Species - Exploratory Data Analysis
+Dataset: https://www.kaggle.com/datasets/uciml/iris
+
+Usage:
+    pip install pandas numpy matplotlib seaborn scikit-learn
+    python iris_eda.py
+
+Place the Kaggle file `Iris.csv` next to this script. If it is missing,
+the same dataset is loaded from scikit-learn instead.
+Figures are saved in ./figures and summary tables in ./outputs.
+"""
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+
+sns.set_theme(style="whitegrid", palette="deep")
+
+FIG_DIR = Path("figures")
+OUT_DIR = Path("outputs")
+FIG_DIR.mkdir(exist_ok=True)
+OUT_DIR.mkdir(exist_ok=True)
+
+FEATURES = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
+
+
+# --------------------------------------------------------------------------
+# 1. Load data
+# --------------------------------------------------------------------------
+def load_data(path: str = "Iris.csv") -> pd.DataFrame:
+    if Path(path).exists():
+        df = pd.read_csv(path)
+        df = df.drop(columns=["Id"], errors="ignore")
+        df = df.rename(
+            columns={
+                "SepalLengthCm": "sepal_length",
+                "SepalWidthCm": "sepal_width",
+                "PetalLengthCm": "petal_length",
+                "PetalWidthCm": "petal_width",
+                "Species": "species",
+            }
+        )
+        df["species"] = df["species"].str.replace("Iris-", "", regex=False)
+    else:
+        from sklearn.datasets import load_iris
+
+        raw = load_iris(as_frame=True)
+        df = raw.frame.copy()
+        df.columns = FEATURES + ["species"]
+        df["species"] = df["species"].map(dict(enumerate(raw.target_names)))
+    return df
+
+
+def save_fig(name: str) -> None:
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / f"{name}.png", dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+# --------------------------------------------------------------------------
+# 2. Overview & summary statistics
+# --------------------------------------------------------------------------
+def overview(df: pd.DataFrame) -> None:
+    print("=" * 60)
+    print("SHAPE:", df.shape)
+    print("\nFIRST 5 ROWS:\n", df.head())
+    print("\nINFO:")
+    df.info()
+    print("\nMISSING VALUES:\n", df.isna().sum())
+    print("\nDUPLICATE ROWS:", df.duplicated().sum())
+    print("\nCLASS COUNTS:\n", df["species"].value_counts())
+
+
+def summary_statistics(df: pd.DataFrame) -> None:
+    print("=" * 60)
+    desc = df[FEATURES].describe().T
+    desc["median"] = df[FEATURES].median()
+    desc["variance"] = df[FEATURES].var()
+    desc["skewness"] = df[FEATURES].skew()
+    desc["kurtosis"] = df[FEATURES].kurt()
+    desc["IQR"] = df[FEATURES].quantile(0.75) - df[FEATURES].quantile(0.25)
+    print("\nOVERALL SUMMARY STATISTICS:\n", desc.round(3))
+    desc.round(3).to_csv(OUT_DIR / "summary_overall.csv")
+
+    by_species = df.groupby("species")[FEATURES].agg(["mean", "median", "std", "min", "max"])
+    print("\nSUMMARY BY SPECIES:\n", by_species.round(3))
+    by_species.round(3).to_csv(OUT_DIR / "summary_by_species.csv")
+
+    corr = df[FEATURES].corr()
+    print("\nCORRELATION MATRIX:\n", corr.round(3))
+    corr.round(3).to_csv(OUT_DIR / "correlation_matrix.csv")
+
+
+# --------------------------------------------------------------------------
+# 3. Visualisations
+# --------------------------------------------------------------------------
+def plot_class_distribution(df: pd.DataFrame) -> None:
+    ax = sns.countplot(data=df, x="species", hue="species", legend=False)
+    for container in ax.containers:
+        ax.bar_label(container)
+    ax.set_title("Class Distribution")
+    save_fig("01_class_distribution")
+
+
+def plot_histograms(df: pd.DataFrame) -> None:
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    for ax, col in zip(axes.ravel(), FEATURES):
+        sns.histplot(data=df, x=col, hue="species", kde=True, bins=20, ax=ax)
+        ax.set_title(f"Distribution of {col.replace('_', ' ')}")
+    save_fig("02_histograms")
+
+
+def plot_boxplots(df: pd.DataFrame) -> None:
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    for ax, col in zip(axes.ravel(), FEATURES):
+        sns.boxplot(data=df, x="species", y=col, hue="species", legend=False, ax=ax)
+        ax.set_title(f"{col.replace('_', ' ').title()} by Species")
+    save_fig("03_boxplots")
+
+
+def plot_violins(df: pd.DataFrame) -> None:
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    for ax, col in zip(axes.ravel(), FEATURES):
+        sns.violinplot(data=df, x="species", y=col, hue="species", legend=False, ax=ax)
+        ax.set_title(f"{col.replace('_', ' ').title()} by Species")
+    save_fig("04_violinplots")
+
+
+def plot_pairplot(df: pd.DataFrame) -> None:
+    g = sns.pairplot(df, hue="species", diag_kind="kde", corner=False)
+    g.figure.suptitle("Pairplot of Iris Features", y=1.02)
+    g.figure.savefig(FIG_DIR / "05_pairplot.png", dpi=150, bbox_inches="tight")
+    plt.close(g.figure)
+
+
+def plot_correlation_heatmap(df: pd.DataFrame) -> None:
+    plt.figure(figsize=(7, 5.5))
+    sns.heatmap(df[FEATURES].corr(), annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1)
+    plt.title("Correlation Heatmap")
+    save_fig("06_correlation_heatmap")
+
+
+def plot_scatter_relationships(df: pd.DataFrame) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    sns.scatterplot(data=df, x="sepal_length", y="sepal_width", hue="species", s=60, ax=axes[0])
+    axes[0].set_title("Sepal Length vs Sepal Width")
+    sns.scatterplot(data=df, x="petal_length", y="petal_width", hue="species", s=60, ax=axes[1])
+    axes[1].set_title("Petal Length vs Petal Width")
+    save_fig("07_scatter_relationships")
+
+
+def plot_feature_means(df: pd.DataFrame) -> None:
+    means = df.groupby("species")[FEATURES].mean().T
+    means.plot(kind="bar", figsize=(9, 5))
+    plt.title("Mean Feature Values by Species")
+    plt.ylabel("Centimetres")
+    plt.xticks(rotation=0)
+    save_fig("08_feature_means")
+
+
+def plot_outliers_zscore(df: pd.DataFrame, threshold: float = 3.0) -> None:
+    z = (df[FEATURES] - df[FEATURES].mean()) / df[FEATURES].std()
+    outliers = (z.abs() > threshold).sum()
+    print("=" * 60)
+    print(f"\nOUTLIERS (|z| > {threshold}) PER FEATURE:\n", outliers)
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+def main() -> None:
+    df = load_data()
+    overview(df)
+    summary_statistics(df)
+    plot_outliers_zscore(df)
+
+    plot_class_distribution(df)
+    plot_histograms(df)
+    plot_boxplots(df)
+    plot_violins(df)
+    plot_pairplot(df)
+    plot_correlation_heatmap(df)
+    plot_scatter_relationships(df)
+    plot_feature_means(df)
+
+    print(f"\nDone. Figures saved in '{FIG_DIR}/', tables in '{OUT_DIR}/'.")
+
+
+if __name__ == "__main__":
+    main()
