@@ -1,0 +1,154 @@
+"""
+Iris Species - Decision Tree Classifier
+Dataset: https://www.kaggle.com/datasets/uciml/iris
+
+Usage:
+    pip install pandas numpy matplotlib seaborn scikit-learn
+    python iris_decision_tree.py
+
+Place the Kaggle file `Iris.csv` next to this script. If it is missing,
+the same dataset is loaded from scikit-learn instead.
+"""
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    precision_score,
+    recall_score,
+)
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.tree import DecisionTreeClassifier, export_text, plot_tree
+
+sns.set_theme(style="whitegrid")
+
+FIG_DIR = Path("figures")
+FIG_DIR.mkdir(exist_ok=True)
+
+FEATURES = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
+RANDOM_STATE = 42
+
+
+# --------------------------------------------------------------------------
+# 1. Load data
+# --------------------------------------------------------------------------
+def load_data(path: str = "Iris.csv") -> pd.DataFrame:
+    if Path(path).exists():
+        df = pd.read_csv(path)
+        df = df.drop(columns=["Id"], errors="ignore")
+        df = df.rename(
+            columns={
+                "SepalLengthCm": "sepal_length",
+                "SepalWidthCm": "sepal_width",
+                "PetalLengthCm": "petal_length",
+                "PetalWidthCm": "petal_width",
+                "Species": "species",
+            }
+        )
+        df["species"] = df["species"].str.replace("Iris-", "", regex=False)
+    else:
+        from sklearn.datasets import load_iris
+
+        raw = load_iris(as_frame=True)
+        df = raw.frame.copy()
+        df.columns = FEATURES + ["species"]
+        df["species"] = df["species"].map(dict(enumerate(raw.target_names)))
+    return df
+
+
+# --------------------------------------------------------------------------
+# 2. Train / evaluate
+# --------------------------------------------------------------------------
+def main() -> None:
+    df = load_data()
+    X = df[FEATURES]
+    y = df["species"]
+    class_names = sorted(y.unique())
+
+    # Stratified split keeps the class balance equal in train and test sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
+    )
+    print(f"Train size: {len(X_train)} | Test size: {len(X_test)}")
+
+    model = DecisionTreeClassifier(
+        criterion="gini", max_depth=3, random_state=RANDOM_STATE
+    )
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    # ---- Metrics ----------------------------------------------------------
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average="macro")
+    recall = recall_score(y_test, y_pred, average="macro")
+
+    print("\n" + "=" * 60)
+    print("TEST SET PERFORMANCE")
+    print("=" * 60)
+    print(f"Accuracy          : {accuracy:.4f}")
+    print(f"Precision (macro) : {precision:.4f}")
+    print(f"Recall    (macro) : {recall:.4f}")
+    print(f"Precision (weighted): {precision_score(y_test, y_pred, average='weighted'):.4f}")
+    print(f"Recall    (weighted): {recall_score(y_test, y_pred, average='weighted'):.4f}")
+
+    print("\nPer-class report:\n")
+    print(classification_report(y_test, y_pred, target_names=class_names, digits=3))
+
+    # ---- Cross-validation (more reliable than a single split) -------------
+    cv_scores = cross_val_score(model, X, y, cv=5, scoring="accuracy")
+    print(f"5-fold CV accuracy: {cv_scores.mean():.4f} (+/- {cv_scores.std():.4f})")
+
+    # ---- Feature importance ----------------------------------------------
+    importances = pd.Series(model.feature_importances_, index=FEATURES).sort_values(
+        ascending=False
+    )
+    print("\nFeature importances:\n", importances.round(4))
+
+    print("\nTree rules:\n")
+    print(export_text(model, feature_names=FEATURES))
+
+    # ---- Plots -----------------------------------------------------------
+    # Confusion matrix
+    cm = confusion_matrix(y_test, y_pred, labels=class_names)
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(
+        cm, annot=True, fmt="d", cmap="Blues",
+        xticklabels=class_names, yticklabels=class_names,
+    )
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.title("Confusion Matrix - Decision Tree")
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "dt_confusion_matrix.png", dpi=150)
+    plt.close()
+
+    # Tree structure
+    plt.figure(figsize=(14, 8))
+    plot_tree(
+        model, feature_names=FEATURES, class_names=model.classes_,
+        filled=True, rounded=True, fontsize=10,
+    )
+    plt.title("Decision Tree Structure")
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "dt_tree.png", dpi=150)
+    plt.close()
+
+    # Feature importance
+    plt.figure(figsize=(7, 4))
+    sns.barplot(x=importances.values, y=importances.index, hue=importances.index, legend=False)
+    plt.title("Feature Importance")
+    plt.xlabel("Importance")
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "dt_feature_importance.png", dpi=150)
+    plt.close()
+
+    print(f"\nPlots saved in '{FIG_DIR}/'.")
+
+
+if __name__ == "__main__":
+    main()
